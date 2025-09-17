@@ -10,6 +10,10 @@ import (
 	"syscall"
 )
 
+//Программа должна корректно завершаться по нажатию Ctrl+C (SIGINT).
+//Выберите и обоснуйте способ завершения работы всех горутин-воркеров при получении сигнала прерывания.
+//Подсказка: можно использовать контекст (context.Context) или канал для оповещения о завершении.
+
 /*
 	To launch the program input: go run L1.4.go <worker number>
 	e.g.: go run L1.4.go 5
@@ -38,7 +42,7 @@ func workerWithCancelling(ctx context.Context, wg *sync.WaitGroup, id int, jobs 
 	}
 }
 
-func main1() {
+func main() {
 	workerCount, err := strconv.Atoi(os.Args[1])
 	if err != nil || workerCount <= 0 {
 		fmt.Println("Error: Invalid worker count")

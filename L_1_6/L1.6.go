@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+//Реализовать все возможные способы остановки выполнения горутины.
+//Классические подходы: выход по условию, через канал уведомления, через контекст, прекращение работы runtime.Goexit() и др.
+//Продемонстрируйте каждый способ в отдельном фрагменте кода.
+
 // 1. Остановка по условию (флагу)
 func workerByCondition(stop *bool, wg *sync.WaitGroup) {
 	defer wg.Done()
@@ -117,7 +121,7 @@ func stopWithGoexit() {
 	fmt.Println("Main: Горутина остановлена.")
 }
 
-func stoppingGoroutineDemo() {
+func main() {
 	stopByCondition()
 	fmt.Println()
 	stopWithChannel()

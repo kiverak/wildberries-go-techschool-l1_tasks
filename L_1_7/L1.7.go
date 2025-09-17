@@ -7,7 +7,11 @@ import (
 	"sync"
 )
 
-func writeDataToMapConcurrent() {
+//Реализовать безопасную для конкуренции запись данных в структуру map.
+//Подсказка: необходимость использования синхронизации (например, sync.Mutex или встроенная concurrent-map).
+//Проверьте работу кода на гонки (util go run -race).
+
+func main() {
 	const goroutines = 100 // число горутин
 	const perG = 1000      // число записей на одну горутину
 
@@ -36,5 +40,5 @@ func writeDataToMapConcurrent() {
 	fmt.Println("len:", count) // должно быть 100.000
 }
 
-// запуск детектора гонок: go run -race main.go
+// запуск детектора гонок: go run -race L1.7.go
 // для запуска на Windows установить w64devkit
