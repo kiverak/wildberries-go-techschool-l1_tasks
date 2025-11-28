@@ -1,0 +1,6 @@
+hello world
+Go is fun
+HELLO GOLANG
+another line
+go is great
+final line
