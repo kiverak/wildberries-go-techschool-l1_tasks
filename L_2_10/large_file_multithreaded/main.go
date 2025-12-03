@@ -47,7 +47,19 @@ func main() {
 	cfg := parseFlags()
 
 	if cfg.C {
-		isSorted, err := IsSorted(cfg)
+		var reader io.Reader = os.Stdin
+		filename := flag.Arg(0)
+		if filename != "" {
+			file, err := os.Open(filename)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "error opening file: %v\n", err)
+				os.Exit(1)
+			}
+			defer file.Close()
+			reader = file
+		}
+
+		isSorted, err := IsSorted(reader, cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
@@ -353,20 +365,7 @@ type LineSorter struct {
 
 // IsSorted проверяет, отсортирован ли ввод (из файла или STDIN) в соответствии с конфигурацией
 // читает ввод построчно, не загружая весь файл в память
-func IsSorted(cfg Config) (bool, error) {
-	var reader io.Reader
-	filename := flag.Arg(0)
-	if filename == "" {
-		reader = os.Stdin
-	} else {
-		file, err := os.Open(filename)
-		if err != nil {
-			return false, fmt.Errorf("failed to open input file for sorting check: %w", err)
-		}
-		defer file.Close()
-		reader = file
-	}
-
+func IsSorted(reader io.Reader, cfg Config) (bool, error) {
 	scanner := bufio.NewScanner(reader)
 	var previousLine string
 	firstLine := true
