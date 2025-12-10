@@ -254,8 +254,17 @@ func (s *Shell) executePipeline(line string) int {
 	return exitCode
 }
 
+// expandEnv расширяет переменные окружения в строке
+// Поддерживает синтаксис $VAR и ${VAR}
+func expandEnv(s string) string {
+	return os.ExpandEnv(s)
+}
+
 // parsCommand разбирает строку команды в exec.Cmd
 func (s *Shell) parseCommand(line string) *exec.Cmd {
+	// Расширяем переменные окружения
+	line = expandEnv(line)
+
 	// Разбиваем на аргументы
 	parts := strings.Fields(line)
 	if len(parts) == 0 {
@@ -323,6 +332,10 @@ func (s *Shell) executeSingleCommand(line string) int {
 		return 0
 	}
 
+	// Расширяем переменные для встроенных команд
+	line = expandEnv(line)
+	parts = strings.Fields(line)
+
 	// Выполняем встроенную команду (cd, pwd, kill, exit)
 	if s.executeBuiltin(parts) {
 		return 0
@@ -344,6 +357,10 @@ func (s *Shell) executeBuiltin(parts []string) bool {
 
 	switch cmd {
 	case "cd":
+		// Расширяем переменные в аргументах cd
+		if len(args) > 0 {
+			args[0] = expandEnv(args[0])
+		}
 		s.builtinCd(args)
 		return true
 

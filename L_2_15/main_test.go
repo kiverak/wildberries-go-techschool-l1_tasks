@@ -356,3 +356,76 @@ func TestComplexPipeline(t *testing.T) {
 		t.Errorf("complex pipeline: expected output, got empty")
 	}
 }
+
+// TestEnvVarExpansion тестирует подстановку переменных окружения
+func TestEnvVarExpansion(t *testing.T) {
+	// Устанавливаем переменную окружения
+	os.Setenv("TEST_VAR", "hello_world")
+	defer os.Unsetenv("TEST_VAR")
+
+	input := bufio.NewReader(strings.NewReader("echo $TEST_VAR\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	result := output.String()
+	if !strings.Contains(result, "hello_world") {
+		t.Errorf("env var expansion: expected 'hello_world' in output, got %q", result)
+	}
+}
+
+// TestEnvVarExpansionBraces тестирует подстановку ${VAR}
+func TestEnvVarExpansionBraces(t *testing.T) {
+	os.Setenv("TEST_BRACES", "test_value")
+	defer os.Unsetenv("TEST_BRACES")
+
+	input := bufio.NewReader(strings.NewReader("echo ${TEST_BRACES}\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	result := output.String()
+	if !strings.Contains(result, "test_value") {
+		t.Errorf("env var braces expansion: expected 'test_value' in output, got %q", result)
+	}
+}
+
+// TestEnvVarInPipeline тестирует переменные в конвейере
+func TestEnvVarInPipeline(t *testing.T) {
+	os.Setenv("PIPE_TEST", "pipeline_var")
+	defer os.Unsetenv("PIPE_TEST")
+
+	input := bufio.NewReader(strings.NewReader("echo $PIPE_TEST | cat\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	result := output.String()
+	if !strings.Contains(result, "pipeline_var") {
+		t.Errorf("env var in pipeline: expected 'pipeline_var' in output, got %q", result)
+	}
+}
+
+// TestEnvVarInCd тестирует переменные в команде cd
+func TestEnvVarInCd(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.Setenv("TEST_DIR", tmpDir)
+	defer os.Unsetenv("TEST_DIR")
+
+	originalCwd, _ := os.Getwd()
+	defer os.Chdir(originalCwd)
+
+	input := bufio.NewReader(strings.NewReader("cd $TEST_DIR\npwd\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	result := output.String()
+	if !strings.Contains(result, tmpDir) {
+		t.Errorf("env var in cd: expected %q in output, got %q", tmpDir, result)
+	}
+}
