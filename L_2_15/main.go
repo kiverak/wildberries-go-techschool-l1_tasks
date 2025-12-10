@@ -69,11 +69,11 @@ func (s *Shell) Run() error {
 	// Обработка Ctrl+C
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
-	go s.handleSignals(sigChan)
+	go s.handleSignals(sigChan) // выводит новую строку при получении прерывания Ctrl+C
 
 	for {
 		// Вывод приглашения
-		fmt.Fprint(s.writer, s.getPrompt())
+		fmt.Fprint(s.writer, s.getPrompt()) // печатаем текущую директорию
 
 		// Чтение строки команды
 		line, err := s.reader.ReadString('\n')
@@ -114,12 +114,12 @@ func (s *Shell) getPrompt() string {
 		dir = "~" + strings.TrimPrefix(dir, home)
 	}
 
-	user, _ := user.Current()
+	currentUser, _ := user.Current()
 	var prefix string
-	if user.Uid == "0" {
-		prefix = "#"
+	if currentUser.Uid == "0" {
+		prefix = "#" // admin
 	} else {
-		prefix = "$"
+		prefix = "$" // user
 	}
 
 	return fmt.Sprintf("[%s] %s %s ", getHostname(), dir, prefix)
@@ -138,7 +138,7 @@ func (s *Shell) executeCommand(line string) {
 				break // &&: выполнять только если предыдущая команда успешна
 			}
 			if operators[i-1] == "||" && lastExitCode == 0 {
-				continue // ||: выполнять только если предыдущая команда ошибка
+				continue // ||: выполнять только если предыдущая команда неуспешна
 			}
 		}
 
@@ -146,7 +146,7 @@ func (s *Shell) executeCommand(line string) {
 	}
 }
 
-// parseConditionals разбирает условные операторы && и ||
+// parseConditionals парсит строку по условным операторам && и ||
 func (s *Shell) parseConditionals(line string) ([]string, []string) {
 	var commands []string
 	var operators []string
@@ -156,15 +156,27 @@ func (s *Shell) parseConditionals(line string) ([]string, []string) {
 		if i+1 < len(line) && (line[i:i+2] == "&&" || line[i:i+2] == "||") {
 			// Найдена условная команда
 			cmd := strings.TrimSpace(line[:i])
+
 			if cmd != "" {
 				commands = append(commands, cmd)
 				operators = append(operators, line[i:i+2])
+			} else {
+				// Обработка случая, когда перед оператором нет команды
+				fmt.Fprintln(s.writer, "syntax error near unexpected token", line[i:i+2])
+				return commands, operators // Возвращаем текущий результат с ошибкой
 			}
+
 			line = line[i+2:]
 			i = 0
 		} else {
 			i++
 		}
+	}
+
+	// Проверка, что строка не начинается с оператора
+	if len(commands) == 0 && len(operators) > 0 {
+		fmt.Fprintln(s.writer, "syntax error near unexpected token", operators[0])
+		return commands, operators // Возвращаем текущий результат с ошибкой
 	}
 
 	if strings.TrimSpace(line) != "" {
@@ -183,40 +195,52 @@ func (s *Shell) executePipeline(line string) int {
 		return s.executeSingleCommand(strings.TrimSpace(line))
 	}
 
-	// Несколько команд в конвейере
+	// Создаем слайс для хранения команд
 	var cmds []*exec.Cmd
+	// Создаем слайс для хранения "записывающих" концов труб, чтобы их можно было закрыть позже
+	var pipes []io.Closer
 
 	for i, part := range parts {
 		part = strings.TrimSpace(part)
 		cmd := s.parseCommand(part)
 		if cmd == nil {
+			// Закрываем все уже открытые трубы перед выходом
+			for _, p := range pipes {
+				p.Close()
+			}
+			fmt.Fprintf(s.writer, "ошибка: встроенная команда не может быть частью конвейера: %s\n", part)
 			return 1
 		}
 
-		// Последняя команда - выводим в консоль
-		if i == len(parts)-1 {
-			cmd.Stdout = s.writer
+		// Соединяем команды
+		if i > 0 {
+			// stdin текущей команды - это stdout предыдущей
+			r, w, _ := os.Pipe()
+			cmds[i-1].Stdout = w     // Предыдущая пишет в трубу
+			cmd.Stdin = r            // Текущая читает из трубы
+			pipes = append(pipes, w) // Сохраняем "записывающий" конец для закрытия
 		}
 
 		cmds = append(cmds, cmd)
 	}
 
-	// Подключаем конвейер
-	for i := 0; i < len(cmds)-1; i++ {
-		r, w, _ := os.Pipe()
-		cmds[i].Stdout = w
-		cmds[i+1].Stdin = r
-	}
+	// stdout последней команды направляем в основной writer (в консоль)
+	cmds[len(cmds)-1].Stdout = s.writer
 
 	// Запускаем все команды
 	for _, cmd := range cmds {
 		if err := cmd.Start(); err != nil {
-			fmt.Fprintf(s.writer, "ошибка: %v\n", err)
+			fmt.Fprintf(s.writer, "ошибка запуска: %v\n", err)
 			return 1
 		}
 	}
 
-	// Ждем завершения всех команд
+	// Закрываем все "записывающие" концы труб в родительском процессе
+	for _, p := range pipes {
+		p.Close()
+	}
+
+	// Ждем завершения всех команд, начиная с последней
 	var exitCode int
 	for _, cmd := range cmds {
 		err := cmd.Wait()
@@ -238,16 +262,34 @@ func (s *Shell) parseCommand(line string) *exec.Cmd {
 		return nil
 	}
 
-	// Проверяем встроенные команды
-	builtin := parts[0]
-	switch builtin {
-	case "cd", "pwd", "echo", "kill", "ps", "exit":
-		// Встроенные команды выполняются отдельно, возвращаем nil
+	command := parts[0]
+	args := parts[1:]
+
+	// Встроенные команды, которые могут быть в конвейере (echo, ps)
+	switch command {
+	case "echo":
+		// echo в конвейере: просто выводит аргументы
+		cmd := exec.Command("echo", args...)
+		cmd.Stderr = os.Stderr
+		return cmd
+
+	case "ps":
+		// ps может быть в конвейере
+		cmd := exec.Command("ps", args...)
+		if len(args) == 0 {
+			// Если нет аргументов, используем aux
+			cmd = exec.Command("ps", "aux")
+		}
+		cmd.Stderr = os.Stderr
+		return cmd
+
+	// Встроенные команды, которые не могут быть в конвейере
+	case "cd", "pwd", "kill", "exit":
 		return nil
 	}
 
 	// Внешняя команда
-	cmd := exec.Command(parts[0], parts[1:]...)
+	cmd := exec.Command(command, args...)
 	cmd.Stderr = os.Stderr
 	return cmd
 }
@@ -264,29 +306,34 @@ func (s *Shell) executeSingleCommand(line string) int {
 		return 0
 	}
 
-	// Выполняем встроенную команду если существует
+	// Пытаемся получить exec.Cmd (работает для echo, ps, внешних команд)
+	cmd := s.parseCommand(line)
+	if cmd != nil {
+		// Это внешняя команда или echo/ps
+		cmd.Stdout = s.writer
+		cmd.Stdin = os.Stdin
+
+		if err := cmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				return exitErr.ExitCode()
+			}
+			fmt.Fprintf(s.writer, "ошибка: %v\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	// Выполняем встроенную команду (cd, pwd, kill, exit)
 	if s.executeBuiltin(parts) {
 		return 0
 	}
 
-	// Выполняем внешнюю команду
-	cmd := exec.Command(parts[0], parts[1:]...)
-	cmd.Stdout = s.writer
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			return exitErr.ExitCode()
-		}
-		fmt.Fprintf(s.writer, "ошибка: %v\n", err)
-		return 1
-	}
-
-	return 0
+	// Неизвестная команда
+	fmt.Fprintf(s.writer, "команда не найдена: %s\n", parts[0])
+	return 1
 }
 
-// executeBuiltin выполняет встроенную команду
+// executeBuiltin выполняет встроенную команду (только те, что не могут быть в конвейере)
 func (s *Shell) executeBuiltin(parts []string) bool {
 	if len(parts) == 0 {
 		return false
@@ -304,16 +351,8 @@ func (s *Shell) executeBuiltin(parts []string) bool {
 		fmt.Fprintln(s.writer, s.cwd)
 		return true
 
-	case "echo":
-		fmt.Fprintln(s.writer, strings.Join(args, " "))
-		return true
-
 	case "kill":
 		s.builtinKill(args)
-		return true
-
-	case "ps":
-		s.builtinPs()
 		return true
 
 	case "exit":
@@ -386,14 +425,6 @@ func (s *Shell) builtinKill(args []string) {
 	if err := proc.Signal(signal); err != nil {
 		fmt.Fprintf(s.writer, "kill: ошибка: %v\n", err)
 	}
-}
-
-// builtinPs выводит список процессов
-func (s *Shell) builtinPs() {
-	cmd := exec.Command("ps", "aux")
-	cmd.Stdout = s.writer
-	cmd.Stderr = s.writer
-	cmd.Run()
 }
 
 // handleSignals обрабатывает сигналы

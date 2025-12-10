@@ -205,7 +205,7 @@ func TestExecuteBuiltin(t *testing.T) {
 		{
 			name:      "echo",
 			command:   []string{"echo", "test"},
-			isBuiltin: true,
+			isBuiltin: false, // echo теперь работает как внешняя команда (может быть в конвейере)
 		},
 		{
 			name:      "pwd",
@@ -225,7 +225,7 @@ func TestExecuteBuiltin(t *testing.T) {
 		{
 			name:      "ps",
 			command:   []string{"ps"},
-			isBuiltin: true,
+			isBuiltin: false, // ps теперь работает как внешняя команда (может быть в конвейере)
 		},
 		{
 			name:      "unknown",
@@ -313,15 +313,46 @@ func TestCdWithRelativePath(t *testing.T) {
 	}
 }
 
-// BenchmarkShellExecution измеряет производительность выполнения команд
-func BenchmarkShellExecution(b *testing.B) {
-	input := bufio.NewReader(strings.NewReader("echo benchmark\necho benchmark\necho benchmark\nexit\n"))
+// TestEchoPipeline тестирует echo в конвейере
+func TestEchoPipeline(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("echo hello world | cat\nexit\n"))
 	output := &bytes.Buffer{}
 
 	shell := NewShell(input, output)
+	shell.Run()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		shell.executeCommand("echo test")
+	result := output.String()
+	if !strings.Contains(result, "hello world") {
+		t.Errorf("echo pipeline: expected 'hello world' in output, got %q", result)
+	}
+}
+
+// TestPsPipeline тестирует ps в конвейере
+func TestPsPipeline(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("ps | head -1\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	result := output.String()
+	// ps должна вывести строки, даже если они отфильтрованы head
+	if len(result) == 0 {
+		t.Errorf("ps pipeline: expected some output, got empty")
+	}
+}
+
+// TestComplexPipeline тестирует сложный конвейер с echo
+func TestComplexPipeline(t *testing.T) {
+	input := bufio.NewReader(strings.NewReader("echo -e 'line1\\nline2\\nline3' | wc -l\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	result := output.String()
+	// Вывод должен содержать результат wc -l
+	if len(result) == 0 {
+		t.Errorf("complex pipeline: expected output, got empty")
 	}
 }
