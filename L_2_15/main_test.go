@@ -36,6 +36,7 @@ func TestBuiltinEcho(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			input := bufio.NewReader(strings.NewReader(tt.input + "exit\n"))
 			output := &bytes.Buffer{}
 
@@ -52,6 +53,7 @@ func TestBuiltinEcho(t *testing.T) {
 
 // TestBuiltinPwd тестирует встроенную команду pwd
 func TestBuiltinPwd(t *testing.T) {
+	t.Parallel()
 	input := bufio.NewReader(strings.NewReader("pwd\nexit\n"))
 	output := &bytes.Buffer{}
 
@@ -68,6 +70,7 @@ func TestBuiltinPwd(t *testing.T) {
 
 // TestBuiltinCd тестирует встроенную команду cd
 func TestBuiltinCd(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	originalCwd, _ := os.Getwd()
 	defer os.Chdir(originalCwd)
@@ -86,6 +89,7 @@ func TestBuiltinCd(t *testing.T) {
 
 // TestBuiltinCdHome тестирует cd без аргументов (в домашнюю папку)
 func TestBuiltinCdHome(t *testing.T) {
+	t.Parallel()
 	input := bufio.NewReader(strings.NewReader("cd\npwd\nexit\n"))
 	output := &bytes.Buffer{}
 
@@ -101,6 +105,7 @@ func TestBuiltinCdHome(t *testing.T) {
 
 // TestBuiltinCdTilde тестирует cd с тильдой
 func TestBuiltinCdTilde(t *testing.T) {
+	t.Parallel()
 	input := bufio.NewReader(strings.NewReader("cd ~\npwd\nexit\n"))
 	output := &bytes.Buffer{}
 
@@ -147,6 +152,7 @@ func TestParseConditionals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			shell := NewShell(nil, nil)
 			cmds, ops := shell.parseConditionals(tt.input)
 
@@ -167,6 +173,7 @@ func TestParseConditionals(t *testing.T) {
 
 // TestExternalCommand тестирует выполнение внешней команды
 func TestExternalCommand(t *testing.T) {
+	t.Parallel()
 	// Используем команду которая есть на всех платформах
 	input := bufio.NewReader(strings.NewReader("echo test\nexit\n"))
 	output := &bytes.Buffer{}
@@ -182,6 +189,7 @@ func TestExternalCommand(t *testing.T) {
 
 // TestGetPrompt тестирует формирование приглашения
 func TestGetPrompt(t *testing.T) {
+	t.Parallel()
 	shell := NewShell(nil, nil)
 	prompt := shell.getPrompt()
 
@@ -236,6 +244,7 @@ func TestExecuteBuiltin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			output := &bytes.Buffer{}
 			shell := NewShell(nil, output)
 
@@ -249,6 +258,7 @@ func TestExecuteBuiltin(t *testing.T) {
 
 // TestGetHostname тестирует получение имени хоста
 func TestGetHostname(t *testing.T) {
+	t.Parallel()
 	hostname := getHostname()
 	if hostname == "" {
 		t.Error("getHostname: expected non-empty hostname")
@@ -257,6 +267,7 @@ func TestGetHostname(t *testing.T) {
 
 // TestShellNewShell тестирует создание нового shell'а
 func TestShellNewShell(t *testing.T) {
+	t.Parallel()
 	input := bufio.NewReader(strings.NewReader(""))
 	output := &bytes.Buffer{}
 
@@ -278,6 +289,7 @@ func TestShellNewShell(t *testing.T) {
 
 // TestUserInfo тестирует получение информации о пользователе
 func TestUserInfo(t *testing.T) {
+	t.Parallel()
 	currentUser, err := user.Current()
 	if err != nil {
 		t.Fatalf("Failed to get current user: %v", err)
@@ -294,6 +306,7 @@ func TestUserInfo(t *testing.T) {
 
 // TestCdWithRelativePath тестирует cd с относительным путем
 func TestCdWithRelativePath(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	originalCwd, _ := os.Getwd()
 	defer os.Chdir(originalCwd)
@@ -315,6 +328,7 @@ func TestCdWithRelativePath(t *testing.T) {
 
 // TestEchoPipeline тестирует echo в конвейере
 func TestEchoPipeline(t *testing.T) {
+	t.Parallel()
 	input := bufio.NewReader(strings.NewReader("echo hello world | cat\nexit\n"))
 	output := &bytes.Buffer{}
 
@@ -329,6 +343,13 @@ func TestEchoPipeline(t *testing.T) {
 
 // TestPsPipeline тестирует ps в конвейере
 func TestPsPipeline(t *testing.T) {
+	t.Parallel()
+
+	// Пропускаем тест на Windows
+	if os.Getenv("OS") == "Windows_NT" {
+		t.Skip("ps command not available on Windows")
+	}
+
 	input := bufio.NewReader(strings.NewReader("ps | head -1\nexit\n"))
 	output := &bytes.Buffer{}
 
@@ -344,6 +365,7 @@ func TestPsPipeline(t *testing.T) {
 
 // TestComplexPipeline тестирует сложный конвейер с echo
 func TestComplexPipeline(t *testing.T) {
+	t.Parallel()
 	input := bufio.NewReader(strings.NewReader("echo -e 'line1\\nline2\\nline3' | wc -l\nexit\n"))
 	output := &bytes.Buffer{}
 
@@ -359,6 +381,7 @@ func TestComplexPipeline(t *testing.T) {
 
 // TestEnvVarExpansion тестирует подстановку переменных окружения
 func TestEnvVarExpansion(t *testing.T) {
+	t.Parallel()
 	// Устанавливаем переменную окружения
 	os.Setenv("TEST_VAR", "hello_world")
 	defer os.Unsetenv("TEST_VAR")
@@ -377,6 +400,7 @@ func TestEnvVarExpansion(t *testing.T) {
 
 // TestEnvVarExpansionBraces тестирует подстановку ${VAR}
 func TestEnvVarExpansionBraces(t *testing.T) {
+	t.Parallel()
 	os.Setenv("TEST_BRACES", "test_value")
 	defer os.Unsetenv("TEST_BRACES")
 
@@ -394,6 +418,7 @@ func TestEnvVarExpansionBraces(t *testing.T) {
 
 // TestEnvVarInPipeline тестирует переменные в конвейере
 func TestEnvVarInPipeline(t *testing.T) {
+	t.Parallel()
 	os.Setenv("PIPE_TEST", "pipeline_var")
 	defer os.Unsetenv("PIPE_TEST")
 
@@ -411,6 +436,7 @@ func TestEnvVarInPipeline(t *testing.T) {
 
 // TestEnvVarInCd тестирует переменные в команде cd
 func TestEnvVarInCd(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	os.Setenv("TEST_DIR", tmpDir)
 	defer os.Unsetenv("TEST_DIR")
@@ -427,5 +453,165 @@ func TestEnvVarInCd(t *testing.T) {
 	result := output.String()
 	if !strings.Contains(result, tmpDir) {
 		t.Errorf("env var in cd: expected %q in output, got %q", tmpDir, result)
+	}
+}
+
+// TestOutputRedirect тестирует редирект > для вывода в файл
+func TestOutputRedirect(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "output.txt")
+
+	input := bufio.NewReader(strings.NewReader("echo hello world > " + outputFile + "\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	// Проверяем, что файл создан и содержит правильный текст
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("не удалось прочитать файл: %v", err)
+	}
+
+	if !strings.Contains(string(content), "hello world") {
+		t.Errorf("output redirect: expected 'hello world' in file, got %q", string(content))
+	}
+}
+
+// TestInputRedirect тестирует редирект < для чтения из файла
+func TestInputRedirect(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	inputFile := filepath.Join(tmpDir, "input.txt")
+
+	// Создаем файл с тестовым содержимым
+	err := os.WriteFile(inputFile, []byte("test content\n"), 0644)
+	if err != nil {
+		t.Fatalf("не удалось создать файл: %v", err)
+	}
+
+	input := bufio.NewReader(strings.NewReader("cat < " + inputFile + "\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	result := output.String()
+	if !strings.Contains(result, "test content") {
+		t.Errorf("input redirect: expected 'test content' in output, got %q", result)
+	}
+}
+
+// TestAppendRedirect тестирует редирект >> для добавления в файл
+func TestAppendRedirect(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "append.txt")
+
+	// Создаем файл с начальным содержимым
+	err := os.WriteFile(outputFile, []byte("first line\n"), 0644)
+	if err != nil {
+		t.Fatalf("не удалось создать файл: %v", err)
+	}
+
+	// Добавляем строку через >>
+	input := bufio.NewReader(strings.NewReader("echo second line >> " + outputFile + "\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	// Проверяем содержимое файла
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("не удалось прочитать файл: %v", err)
+	}
+
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "first line") {
+		t.Errorf("append redirect: expected 'first line' in file, got %q", contentStr)
+	}
+	if !strings.Contains(contentStr, "second line") {
+		t.Errorf("append redirect: expected 'second line' in file, got %q", contentStr)
+	}
+}
+
+// TestPipeRedirect тестирует комбинацию pipeline и redirect
+func TestPipeRedirect(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	outputFile := filepath.Join(tmpDir, "pipe_output.txt")
+
+	input := bufio.NewReader(strings.NewReader("echo line1 | cat > " + outputFile + "\nexit\n"))
+	output := &bytes.Buffer{}
+
+	shell := NewShell(input, output)
+	shell.Run()
+
+	content, err := os.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("не удалось прочитать файл: %v", err)
+	}
+
+	if !strings.Contains(string(content), "line1") {
+		t.Errorf("pipe redirect: expected 'line1' in file, got %q", string(content))
+	}
+}
+
+// TestParseRedirects тестирует парсинг редиректов
+func TestParseRedirects(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          string
+		expectedCmd    string
+		expectedInput  string
+		expectedOutput string
+		expectedAppend bool
+	}{
+		{
+			name:           "output redirect",
+			input:          "echo hello > output.txt",
+			expectedCmd:    "echo hello",
+			expectedOutput: "output.txt",
+		},
+		{
+			name:          "input redirect",
+			input:         "cat < input.txt",
+			expectedCmd:   "cat",
+			expectedInput: "input.txt",
+		},
+		{
+			name:           "append redirect",
+			input:          "echo line >> output.txt",
+			expectedCmd:    "echo line",
+			expectedOutput: "output.txt",
+			expectedAppend: true,
+		},
+		{
+			name:        "no redirect",
+			input:       "ls -la",
+			expectedCmd: "ls -la",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cmd, redirect := parseRedirects(tt.input)
+
+			if cmd != tt.expectedCmd {
+				t.Errorf("parseRedirects: expected cmd %q, got %q", tt.expectedCmd, cmd)
+			}
+			if redirect.InputFile != tt.expectedInput {
+				t.Errorf("parseRedirects: expected input %q, got %q", tt.expectedInput, redirect.InputFile)
+			}
+			if redirect.OutputFile != tt.expectedOutput {
+				t.Errorf("parseRedirects: expected output %q, got %q", tt.expectedOutput, redirect.OutputFile)
+			}
+			if redirect.Append != tt.expectedAppend {
+				t.Errorf("parseRedirects: expected append %v, got %v", tt.expectedAppend, redirect.Append)
+			}
+		})
 	}
 }
