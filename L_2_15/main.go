@@ -70,6 +70,11 @@ func (s *Shell) Run() error {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
 	go s.handleSignals(sigChan) // выводит новую строку при получении прерывания Ctrl+C
+	defer func() {
+		// Очистка ресурсов при выходе из Run
+		signal.Stop(sigChan)
+		close(sigChan)
+	}()
 
 	for {
 		// Вывод приглашения
@@ -188,11 +193,15 @@ func (s *Shell) parseConditionals(line string) ([]string, []string) {
 
 // executePipeline выполняет конвейер команд
 func (s *Shell) executePipeline(line string) int {
+	// Парсим редиректы из всей строки
+	line, redirect := parseRedirects(line)
+
 	// Разбиваем по символу |
 	parts := strings.Split(line, "|")
 	if len(parts) == 1 {
 		// Одна команда без конвейера
-		return s.executeSingleCommand(strings.TrimSpace(line))
+		singleLine := strings.TrimSpace(line)
+		return s.executeSingleCommand(singleLine, redirect)
 	}
 
 	// Создаем слайс для хранения команд
@@ -224,8 +233,39 @@ func (s *Shell) executePipeline(line string) int {
 		cmds = append(cmds, cmd)
 	}
 
-	// stdout последней команды направляем в основной writer (в консоль)
-	cmds[len(cmds)-1].Stdout = s.writer
+	var cleanupFuncs []func()
+
+	// stdout последней команды
+	if redirect.OutputFile != "" {
+		// Применяем редирект к последней команде
+		cleanup, err := applyRedirects(cmds[len(cmds)-1], redirect)
+		cleanupFuncs = append(cleanupFuncs, cleanup)
+
+		if err != nil {
+			fmt.Fprintf(s.writer, "ошибка: %v\n", err)
+			return 1
+		}
+	} else {
+		// Выводим в консоль
+		cmds[len(cmds)-1].Stdout = s.writer
+	}
+
+	// Если есть input редирект для первой команды
+	if redirect.InputFile != "" && len(cmds) > 0 {
+		file, err := os.Open(redirect.InputFile)
+		if err != nil {
+			fmt.Fprintf(s.writer, "ошибка: не удалось открыть файл для чтения '%s': %v\n", redirect.InputFile, err)
+			return 1
+		}
+		cmds[0].Stdin = file
+		cleanupFuncs = append(cleanupFuncs, func() { file.Close() })
+	}
+
+	defer func() {
+		for _, fn := range cleanupFuncs {
+			fn()
+		}
+	}()
 
 	// Запускаем все команды
 	for _, cmd := range cmds {
@@ -303,8 +343,98 @@ func (s *Shell) parseCommand(line string) *exec.Cmd {
 	return cmd
 }
 
+// Redirect содержит информацию о редиректах
+type Redirect struct {
+	InputFile  string // Файл для ввода (<)
+	OutputFile string // Файл для вывода (>, >>)
+	Append     bool   // Использовать >> вместо >
+}
+
+// parseRedirects парсит редиректы из командной строки
+// Возвращает команду без редиректов и информацию о редиректах
+func parseRedirects(line string) (string, Redirect) {
+	redirect := Redirect{}
+
+	// Парсим >>
+	parts := strings.Split(line, ">>")
+	if len(parts) > 1 {
+		redirect.OutputFile = strings.TrimSpace(parts[len(parts)-1])
+		redirect.Append = true
+		// Восстанавливаем команду без >>
+		line = strings.Join(parts[:len(parts)-1], ">>")
+	}
+
+	// Парсим >
+	if redirect.OutputFile == "" {
+		parts := strings.Split(line, ">")
+		if len(parts) > 1 {
+			redirect.OutputFile = strings.TrimSpace(parts[len(parts)-1])
+			redirect.Append = false
+			// Восстанавливаем команду без >
+			line = strings.Join(parts[:len(parts)-1], ">")
+		}
+	}
+
+	// Парсим <
+	parts = strings.Split(line, "<")
+	if len(parts) > 1 {
+		redirect.InputFile = strings.TrimSpace(parts[len(parts)-1])
+		// Восстанавливаем команду без <
+		line = strings.Join(parts[:len(parts)-1], "<")
+	}
+
+	return strings.TrimSpace(line), redirect
+}
+
+// applyRedirects применяет редиректы к команде
+// Возвращает функцию очистки для закрытия открытых файлов
+func applyRedirects(cmd *exec.Cmd, redirect Redirect) (func(), error) {
+	cleanup := func() {}
+
+	// Применяем stdin редирект (<)
+	if redirect.InputFile != "" {
+		file, err := os.Open(redirect.InputFile)
+		if err != nil {
+			return cleanup, fmt.Errorf("не удалось открыть файл для чтения '%s': %v", redirect.InputFile, err)
+		}
+		cmd.Stdin = file
+		oldCleanup := cleanup
+		cleanup = func() {
+			oldCleanup()
+			file.Close()
+		}
+	}
+
+	// Применяем stdout редирект (>, >>)
+	if redirect.OutputFile != "" {
+		var file *os.File
+		var err error
+
+		if redirect.Append {
+			// Открываем файл в режиме добавления
+			file, err = os.OpenFile(redirect.OutputFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		} else {
+			// Открываем файл в режиме перезаписи
+			file, err = os.Create(redirect.OutputFile)
+		}
+
+		if err != nil {
+			return cleanup, fmt.Errorf("не удалось открыть файл для записи '%s': %v", redirect.OutputFile, err)
+		}
+
+		cmd.Stdout = file
+		oldCleanup := cleanup
+		cleanup = func() {
+			oldCleanup()
+			file.Close()
+		}
+	}
+
+	return cleanup, nil
+}
+
 // executeSingleCommand выполняет одну команду
-func (s *Shell) executeSingleCommand(line string) int {
+func (s *Shell) executeSingleCommand(line string, redirect Redirect) int {
 	if strings.TrimSpace(line) == "" {
 		return 0
 	}
@@ -321,6 +451,15 @@ func (s *Shell) executeSingleCommand(line string) int {
 		// Это внешняя команда или echo/ps
 		cmd.Stdout = s.writer
 		cmd.Stdin = os.Stdin
+
+		// Применяем редиректы
+		cleanup, err := applyRedirects(cmd, redirect)
+		defer cleanup()
+
+		if err != nil {
+			fmt.Fprintf(s.writer, "ошибка: %v\n", err)
+			return 1
+		}
 
 		if err := cmd.Run(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
