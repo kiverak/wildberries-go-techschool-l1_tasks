@@ -39,7 +39,7 @@ func main() {
 		os.Exit(2)
 	}
 
-	u, err := url.Parse(*urlFlag)
+	_, err := url.Parse(*urlFlag)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "invalid url:", err)
 		os.Exit(2)
